@@ -2,16 +2,14 @@
 """
 """
 
-from builtins import zip
-from builtins import str
 import os
 import string
 import re
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union
 import warnings
 
-import pycrfsuite
+from sklearn_crfsuite.estimator import CRF
 import probableparsing
 
 # The address components are based upon the `United States Thoroughfare,
@@ -58,6 +56,7 @@ DIRECTIONS = set(['n', 's', 'e', 'w',
                     'north', 'south', 'east', 'west',
                     'northeast', 'northwest', 'southeast', 'southwest'])
 
+# cSpell: disable
 STREET_NAMES = {
     'allee', 'alley', 'ally', 'aly', 'anex', 'annex', 'annx', 'anx', 'arc',
     'arcade', 'av', 'ave', 'aven', 'avenu', 'avenue', 'avn', 'avnue', 'bayoo',
@@ -125,14 +124,18 @@ STREET_NAMES = {
     'vlys', 'vst', 'vsta', 'vw', 'vws', 'walk', 'walks', 'wall', 'way', 'ways',
     'well', 'wells', 'wl', 'wls', 'wy', 'xing', 'xrd', 'xrds',
 }
+# cSpell:enable
+
 try:
-    TAGGER = pycrfsuite.Tagger()
-    TAGGER.open(MODEL_PATH)
+    tagger = CRF(model_filename= MODEL_PATH)
 except IOError:
     warnings.warn(f'You must train the model (parserator train --trainfile FILES) to create the {MODEL_FILE} file before you can use the parse  and tag methods')
 
 
 def parse(address_string:str) -> List[Tuple[str, str]]:
+    """
+    Parse an address string into a list of (part, type) tuples.
+    """
     tokens = tokenize(address_string)
 
     if not tokens:
@@ -140,18 +143,18 @@ def parse(address_string:str) -> List[Tuple[str, str]]:
 
     features = tokens2features(tokens)
 
-    tags = TAGGER.tag(features)
+    tags = tagger.predict(features)
     return list(zip(tokens, tags))
 
 
-def tag(address_string:str, tag_mapping:Optional[Dict[str, str]]= None) -> Tuple[OrderedDict, str]:
+def tag(address_string:str, tag_mapping:Optional[Dict[str, str]]= None) -> Tuple["OrderedDict[str, str]", str]:
     """
     """
-    tagged_address = OrderedDict()
+    tagged_address:OrderedDict[str, List[str]] = OrderedDict()
 
     last_label = None
     is_intersection = False
-    og_labels = []
+    og_labels:List[str] = []
 
     for token, label in parse(address_string):
         is_intersection = label == 'IntersectionSeparator'
@@ -174,10 +177,11 @@ def tag(address_string:str, tag_mapping:Optional[Dict[str, str]]= None) -> Tuple
 
         last_label = label
 
+    taggedAddressJoined:OrderedDict[str, str] = OrderedDict()
     for token in tagged_address:
         component = ' '.join(tagged_address[token])
         component = component.strip().strip(",;")
-        tagged_address[token] = component
+        taggedAddressJoined[token] = component
     # Set up the AddressType literal
     if 'AddressNumber' in og_labels and not is_intersection:
         address_type = 'Street Address'
@@ -188,7 +192,7 @@ def tag(address_string:str, tag_mapping:Optional[Dict[str, str]]= None) -> Tuple
     else:
         address_type = 'Ambiguous'
 
-    return tagged_address, address_type
+    return taggedAddressJoined, address_type
 
 
 def tokenize(address_string:Union[str, bytes]):
@@ -283,5 +287,7 @@ def trailingZeros(token:str):
 
 
 class RepeatedLabelError(probableparsing.RepeatedLabelError):
+    """
+    """
     REPO_URL = 'https://github.com/datamade/usaddress/issues/new'
     DOCS_URL = 'https://usaddress.readthedocs.io/'
