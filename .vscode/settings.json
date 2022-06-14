@@ -10,7 +10,7 @@
     "python.languageServer": "Pylance",
     "python.linting.pylintEnabled": true,
     "python.linting.pylintArgs": [
-        "--disable=C0103,C0413,C0410,C0411,C0301,C0326,I0011,R0201,import-error, consider-iterating-dictionary, unsubscriptable-object"
+        "--disable=C0103,C0413,C0410,C0411,C0301,C0326,I0011,import-error, consider-iterating-dictionary, unsubscriptable-object"
     ],
     "files.trimFinalNewlines": true,
     "files.trimTrailingWhitespace": true,

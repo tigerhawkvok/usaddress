@@ -1,22 +1,24 @@
 #!python3
 """
+Tag an address string into word parts
 """
 
+from functools import lru_cache
 import os
 import string
 import re
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Hashable, List, Optional, Tuple, Union, cast
 import warnings
-
 from sklearn_crfsuite.estimator import CRF
 import probableparsing
+from typing_extensions import Final
 
 # The address components are based upon the `United States Thoroughfare,
 # Landmark, and Postal Address Data Standard
 # http://www.urisa.org/advocacy/united-states-thoroughfare-landmark-and-postal-address-data-standard
 
-LABELS = [
+LABELS:Final = [
     'AddressNumberPrefix',
     'AddressNumber',
     'AddressNumberSuffix',
@@ -45,19 +47,19 @@ LABELS = [
     'NotAddress',
 ]
 
-PARENT_LABEL = 'AddressString'
-GROUP_LABEL = 'AddressCollection'
+PARENT_LABEL:Final = 'AddressString'
+GROUP_LABEL:Final = 'AddressCollection'
 
-MODEL_FILE = 'usaddr.crfsuite'
-MODEL_PATH = os.path.join(os.path.split(os.path.abspath(__file__))[0], MODEL_FILE)
+MODEL_FILE:Final = 'usaddr.crfsuite'
+MODEL_PATH:Final = os.path.join(os.path.split(os.path.abspath(__file__))[0], MODEL_FILE)
 
-DIRECTIONS = set(['n', 's', 'e', 'w',
+DIRECTIONS:Final = frozenset(['n', 's', 'e', 'w',
                     'ne', 'nw', 'se', 'sw',
                     'north', 'south', 'east', 'west',
                     'northeast', 'northwest', 'southeast', 'southwest'])
 
 # cSpell: disable
-STREET_NAMES = {
+STREET_NAMES:Final = frozenset({
     'allee', 'alley', 'ally', 'aly', 'anex', 'annex', 'annx', 'anx', 'arc',
     'arcade', 'av', 'ave', 'aven', 'avenu', 'avenue', 'avn', 'avnue', 'bayoo',
     'bayou', 'bch', 'beach', 'bend', 'bg', 'bgs', 'blf', 'blfs', 'bluf',
@@ -123,13 +125,20 @@ STREET_NAMES = {
     'villiage', 'vis', 'vist', 'vista', 'vl', 'vlg', 'vlgs', 'vlly', 'vly',
     'vlys', 'vst', 'vsta', 'vw', 'vws', 'walk', 'walks', 'wall', 'way', 'ways',
     'well', 'wells', 'wl', 'wls', 'wy', 'xing', 'xrd', 'xrds',
-}
+})
 # cSpell:enable
+
+ADDRESS_TOKEN_REGEX:Final = re.compile(r"""
+\(*\b[^\s,;#&()]+[.,;)\n]*   # ['ab. cd,ef '] -> ['ab.', 'cd,', 'ef']
+|
+[#&]                       # [^'#abc'] -> ['#']
+""",  re.VERBOSE | re.UNICODE)
+TOKEN_CLEAN_REGEX:Final = re.compile(r'(^[\W]*)|([^.\w]*$)', re.UNICODE)
 
 try:
     tagger = CRF(model_filename= MODEL_PATH)
 except IOError:
-    warnings.warn(f'You must train the model (parserator train --trainfile FILES) to create the {MODEL_FILE} file before you can use the parse  and tag methods')
+    warnings.warn(f'You must train the model (parserator train --trainfile FILES) to create the {MODEL_FILE} file before you can use the parse  and tag methods') # cSpell: disable-line
 
 
 def parse(address_string:str) -> List[Tuple[str, str]]:
@@ -141,7 +150,7 @@ def parse(address_string:str) -> List[Tuple[str, str]]:
     if not tokens:
         return []
 
-    features = tokens2features(tokens)
+    features = tokens2features(cast(Hashable, tokens))
 
     tags = tagger.predict(features)
     return list(zip(tokens, tags))
@@ -149,6 +158,7 @@ def parse(address_string:str) -> List[Tuple[str, str]]:
 
 def tag(address_string:str, tag_mapping:Optional[Dict[str, str]]= None) -> Tuple["OrderedDict[str, str]", str]:
     """
+    Tag an address string into word parts
     """
     tagged_address:OrderedDict[str, List[str]] = OrderedDict()
 
@@ -195,33 +205,26 @@ def tag(address_string:str, tag_mapping:Optional[Dict[str, str]]= None) -> Tuple
     return taggedAddressJoined, address_type
 
 
-def tokenize(address_string:Union[str, bytes]):
+@lru_cache(maxsize= None)
+def tokenize(address_string:Union[str, bytes]) -> List[str]:
     """
     """
     if isinstance(address_string, bytes):
         address_string = str(address_string, encoding='utf-8')
     address_string = re.sub('(&#38;)|(&amp;)', '&', address_string)
-    re_tokens = re.compile(r"""
-    \(*\b[^\s,;#&()]+[.,;)\n]*   # ['ab. cd,ef '] -> ['ab.', 'cd,', 'ef']
-    |
-    [#&]                       # [^'#abc'] -> ['#']
-    """,  re.VERBOSE | re.UNICODE)
-
-    tokens = re_tokens.findall(address_string)
-
+    tokens:List[str] = ADDRESS_TOKEN_REGEX.findall(address_string)
     if not tokens:
         return []
-
     return tokens
 
-
+@lru_cache(maxsize= 1024)
 def tokenFeatures(token:str) -> Dict[str, Any]:
     """
     """
     if token in ('&', '#', '½'):
         token_clean = token
     else:
-        token_clean = re.sub(r'(^[\W]*)|([^.\w]*$)', '', token, flags= re.UNICODE)
+        token_clean = TOKEN_CLEAN_REGEX.sub('', token)
 
     token_abbrev = token_clean.lower().replace(".", "")
     features = {
@@ -238,7 +241,7 @@ def tokenFeatures(token:str) -> Dict[str, Any]:
 
     return features
 
-
+@lru_cache(maxsize= 4096)
 def tokens2features(address):
     """
     """
@@ -265,7 +268,7 @@ def tokens2features(address):
 
     return feature_sequence
 
-
+@lru_cache(maxsize= 1024)
 def digits(token:str):
     """
     Return an identifier specifying if the token contains digits.
